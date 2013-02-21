@@ -1,0 +1,9 @@
+Commands Git Hub:
+
+git clone:  clone-fork repository locally
+git add:    adding files
+git rm:     removing files
+git commit
+git status
+git push
+git pull
