@@ -3,6 +3,7 @@ package edu.toronto.cs.energyt;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,19 +11,36 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.MalformedURLException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.net.UnknownHostException;
+import java.util.Map;
+
 import android.app.Activity;
+import android.content.Context;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.media.MediaPlayer;
+import android.media.MediaPlayer.OnErrorListener;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.MediaController;
 import android.widget.Toast;
 import android.widget.VideoView;
 
@@ -52,11 +70,18 @@ public class MainActivity extends Activity {
 	private static final String TAG = "energyt";
 	private VideoView video;
 	private String current;
-	private boolean isPlaying = false;
+	private boolean isPlaying;
+	public StreamProxy.StreamToMediaPlayerTask clientSocketThread;
+	public DownloadTask ytDownloaderThread;
+	
+	
 
 	private class DownloadTask extends AsyncTask<Void, Void, Void> {
-		public static final int BUFFER_SIZE = 1024;
-		public static final int PREFETCH_SIZE = 2000;
+		private static final int BUFFER_SIZE = 1024;
+		private static final int PREFETCH_SIZE = 100000;
+		private boolean isRunning;
+		
+		public DownloadTask() { isRunning = false; };
 		
 		private String parseHTMLSource() throws IOException, NullPointerException {
 			String link = null;
@@ -108,7 +133,9 @@ public class MainActivity extends Activity {
 		
 		private String actualYTLink() throws IOException, NullPointerException {
 			String ytLink = null;
-			URL url = new URL(YOUTUBE_URL);
+			URL url = new URL(((EditText) findViewById(R.id.edtURL)).getText().toString());
+			String debugMess = "User's Link: " + url.toString();
+			Log.d(TAG, debugMess);
 			Log.d(TAG, "Request youtube html source code for a video.");
 			HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 			connection.connect();
@@ -134,42 +161,64 @@ public class MainActivity extends Activity {
 		
 		@Override
 		protected Void doInBackground(Void... unused) {
+			Log.d(TAG, "AsyncTask: in doInBackground for YT.");
+			this.isRunning = true;
 			URL url = null;
-
+			InputStream is = null;
+			BufferedInputStream bis = null;
+			FileOutputStream fos = null;
+			BufferedOutputStream bos = null;
+			
 			try {
+				
+				
+
+				
+				
+				
+				
+				Log.d(TAG, "AsyncTask: doInBackground: In try.");
 				url = new URL(actualYTLink());
-				//url = new URL(YOUTUBE_URL);
 				/* Establish HTTP request to http source code of Youtube */
 				HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-				
-				/*
-				 * Define InputStreams to read from the URLConnection.
-				 */
-				
-				InputStream is = connection.getInputStream();
-				BufferedInputStream bis = new BufferedInputStream(is);
-				FileOutputStream fos = new FileOutputStream(
-						new File(OTHER_FILE));
-				BufferedOutputStream bos = new BufferedOutputStream(fos);
+				/* Define InputStreams to read from the URLConnection. */
+				is = connection.getInputStream();
+				bis = new BufferedInputStream(is);
+				fos = new FileOutputStream(new File(OTHER_FILE));
+				bos = new BufferedOutputStream(fos);
+				//socket = new Soc
 
 				// prefetch a few bytes before starting playing
 				byte data[] = new byte[1024];
 				int j;
-				Log.d(TAG, "Prefetching started.");
 				int count = 0;
-				while (((count < PREFETCH_SIZE) && (j = bis.read(data)) != -1)) {
-					fos.write(data, 0, j);
-					count++;
-				}
-				Log.d(TAG, "Prefetching finished.");
-				
-				// download chunks and start playing
-				Log.d(TAG, "Download started.");
+				boolean notActivate = true;
+				Log.d(TAG, "Prefetching started.");
+				//Below while loop downloads the entire video file
 				while ((j = bis.read(data)) != -1) {
+					
+					//TODO
+					//if(connection is low)
+					//	connection.
+					
+					
+					if (isCancelled()) { //the thread has been cancelled!
+						Log.d(TAG, "Download cancelled.");
+						break;
+					}
 					fos.write(data, 0, j);
-					publishProgress(null);
+					count+=j;
+					
+					//If prefetch is done, startup mediaplayer via publishProgress(null)
+					if(notActivate && count > 0 && count > PREFETCH_SIZE)
+					{
+						Log.d(TAG, "Playback called.");
+						publishProgress(null);
+						count = -1;
+						notActivate = false;
+					}
 				}
-
+				
 				bis.close();
 				bos.close();
 				fos.close();
@@ -188,7 +237,7 @@ public class MainActivity extends Activity {
 
 		@Override
 		protected void onPreExecute() {
-			Log.d(TAG, "Task started.");
+			Log.d(TAG, "AsyncTask: Task started.");
 		}
 
 		@Override
@@ -199,19 +248,227 @@ public class MainActivity extends Activity {
 		@Override
 		protected void onProgressUpdate(Void... values) {
 			playVideo();
+			//Connect to Server and play
 		}
 
 	}
 
+	private class StreamProxy extends AsyncTask<Void,Void,Void>  {
+
+	    private static final int SERVER_PORT=8893;
+	    //private Thread thread;
+	    private boolean isRunning;
+	    private ServerSocket socket;
+	    private int port;
+	    
+	    @Override
+		protected void onPreExecute() {
+			Log.d(TAG, "StreamProxy: Task started.");
+			try {
+				socket = new ServerSocket(SERVER_PORT, 0, InetAddress.getByAddress(new byte[] {127,0,0,1}));
+				socket.setSoTimeout(5000);
+				port = socket.getLocalPort();
+				isRunning = false;
+			} catch (UnknownHostException e) { // impossible
+			} catch (IOException e) {
+				Log.e(TAG, "IOException initializing server", e);
+			}
+		}
+
+		@Override
+		protected void onPostExecute(Void unused) {
+			Log.d(TAG, "StreamProxy: Task finished.");
+			isRunning = false;
+		}
+	    
+		@Override
+		protected Void doInBackground(Void... unused)
+		{
+			Looper.prepare();
+			isRunning = true;
+			while (isRunning) {
+				if (isCancelled()) {
+					this.isRunning = false;
+					break;
+				}
+				try {
+					Log.d(TAG, "StreamProxy: Listening.");
+					Socket client = socket.accept();
+					if (client == null) {
+						continue;
+					}
+					Log.d(TAG, "StreamProxy: client connected");
+
+					//No need to check for any protocol or anything like this...
+					clientSocketThread = new StreamToMediaPlayerTask(client, 0);
+					clientSocketThread.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (Void[])null);
+//					if (task.processRequest()) {
+//						task.execute();
+//						task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (String[])null);
+//					}
+				} catch (SocketTimeoutException e) {
+					// Do nothing
+				} catch (IOException e) {
+					Log.e(TAG, "StreamProxy: Error connecting to client", e);
+				}
+			}
+			Log.d(TAG, "StreamProxy: Proxy interrupted. Shutting down.");
+
+			return null;
+		}
+
+
+
+
+	    private class StreamToMediaPlayerTask extends AsyncTask<Void, Void, Void> {
+
+	        Socket client;
+	        int cbSkip;
+	        private Boolean isRunning;
+
+	        public StreamToMediaPlayerTask(Socket client, int cbSkip) {
+	            this.client = client;
+	            this.cbSkip = cbSkip;
+	            this.isRunning = false;
+	        }
+
+	        @Override
+	        protected Void doInBackground(Void... unused) {
+	        	
+	        	isRunning = true;
+	        	long fileSize = Long.MAX_VALUE;
+//
+//	            // Create HTTP header
+//	            String headers = "HTTP/1.0 200 OK\r\n";
+//	            headers += "Content-Type: " + "video/mp4" + "\r\n";
+//	            //headers += "Content-Length: " + fileSize  + "\r\n";
+//	            headers += "Connection: close\r\n";
+//	            headers += "\r\n";
+
+	            // Begin with HTTP header
+	            //int fc = 0;
+	            //long cbToSend = fileSize - cbSkip;
+	        	long cbToSend = fileSize;
+	            OutputStream output = null;
+	            byte[] buff = new byte[64 * 1024];
+	            try {
+	                output = new BufferedOutputStream(client.getOutputStream(), 32*1024);                           
+
+	                // Loop as long as there's stuff to send
+	                while (isRunning && cbToSend>0 && !client.isClosed()) {
+
+	                    // See if there's more to send
+	                    File file = new File(OTHER_FILE);
+	                    //fc++;
+	                    int cbSentThisBatch = 0;
+	                    if (file.exists()) {
+	                        FileInputStream input = new FileInputStream(file);
+	                        input.skip(cbSkip);
+	                        int cbToSendThisBatch = input.available();
+	                        
+	                        
+	                        while (cbToSendThisBatch > 0) {
+	                        	if (isCancelled()) {
+	                        		Log.d(TAG, "Closing socket connection - tread cancelled.");
+	                        		break;
+	                        	}
+	                        	//how mcuh to send for this exact next packet to mediaplayer (client)
+	                            int cbToRead = Math.min(cbToSendThisBatch, buff.length);
+	                            //Now read the above amount into the buffer
+	                            int cbRead = input.read(buff, 0, cbToRead);
+	                            if (cbRead == -1) {
+	                                break;
+	                            }
+	                            cbToSendThisBatch -= cbRead;
+	                            cbToSend -= cbRead;
+	                            output.write(buff, 0, cbRead);
+	                            output.flush();
+	                            cbSkip += cbRead;
+	                            cbSentThisBatch += cbRead;
+	                        }
+	                        
+	                        
+	                        input.close();
+	                        if (isCancelled()) {
+	                        	Log.d(TAG, "Closing socket connection - tread cancelled.");
+	                        	break;
+	                        }
+	                    }
+	                    if (isCancelled()) {
+	                    	Log.d(TAG, "Closing socket connection - tread cancelled.");
+	                    	break;
+	                    }
+	                    // If we did nothing this batch, block for a second
+	                    if (cbSentThisBatch == 0) {
+	                        Log.d(TAG, "Blocking until more data appears");
+	                        Thread.sleep(1000);
+	                    }
+	                }
+	            }
+	            catch (SocketException socketException) {
+	                Log.e(TAG, "SocketException() thrown, proxy client has probably closed. This can exit harmlessly");
+	            }
+	            catch (Exception e) {
+	                Log.e(TAG, "Exception thrown from streaming task:");
+	                Log.e(TAG, e.getClass().getName() + " : " + e.getLocalizedMessage());
+	                e.printStackTrace();                
+	            }
+
+	            // Cleanup
+	            try {
+	                if (output != null) {
+	                    output.close();
+	                }
+	                client.close();
+	            }
+	            catch (IOException e) {
+	                Log.e(TAG, "IOException while cleaning up streaming task:");                
+	                Log.e(TAG, e.getClass().getName() + " : " + e.getLocalizedMessage());
+	                e.printStackTrace();                
+	            }
+
+	            return null;
+	        }
+
+	    }
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		
+		
+		this.current = null;
+		this.isPlaying = false;
+		this.clientSocketThread = null;
+		this.ytDownloaderThread = null;
+		
+		boolean isEnabled = Settings.System.getInt(
+				this.getApplicationContext().getContentResolver(), 
+			      Settings.System.AIRPLANE_MODE_ON, 0) == 1;
+		
+		
+		Log.d(TAG, "Instantiating server");
+		//new StreamProxy().execute(null, null, null);
+		new StreamProxy().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (Void[])null);
+		Log.d(TAG, "Server triggered");
+		
 		getWindow().setFormat(PixelFormat.TRANSLUCENT);
 		setContentView(R.layout.activity_main);
-
+		
 		((EditText) findViewById(R.id.edtURL)).setText(YOUTUBE_URL);
 
 		video = (VideoView) findViewById(R.id.vidView);
+
 		// set up buttons to override default controls
 		Button mPlay = (Button) findViewById(R.id.btnPlay);
 		Button mPause = (Button) findViewById(R.id.btnPause);
@@ -220,61 +477,70 @@ public class MainActivity extends Activity {
 
 		mPlay.setOnClickListener(new OnClickListener() {
 			public void onClick(View view) {
-				new DownloadTask().execute(null, null, null);
+				Log.d(TAG,"In Play listener");
+				if (!isPlaying && clientSocketThread == null) {
+					Log.d(TAG,"Calling Download Task");
+					ytDownloaderThread = new DownloadTask();
+					ytDownloaderThread.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (Void[])null);
+				}
+				else {
+					video.start();
+				}
 			}
 		});
+		
 		mPause.setOnClickListener(new OnClickListener() {
 			public void onClick(View view) {
 				if (video != null) {
+					Log.d(TAG,"In Pause listener");
 					isPlaying = false;
 					video.pause();
 				}
 			}
 		});
+		
 		mReset.setOnClickListener(new OnClickListener() {
 			public void onClick(View view) {
+				if (clientSocketThread != null) {
+					clientSocketThread.cancel(true);
+					clientSocketThread = null;
+				}
+				if (ytDownloaderThread != null) {
+					ytDownloaderThread.cancel(true);
+					ytDownloaderThread = null;
+				}
 				if (video != null) {
 					isPlaying = false;
 					video.seekTo(0);
 				}
 			}
 		});
+		
 		mStop.setOnClickListener(new OnClickListener() {
 			public void onClick(View view) {
+				if (clientSocketThread != null) {
+					clientSocketThread.cancel(true);
+					clientSocketThread = null;
+				}
+				if (ytDownloaderThread != null) {
+					ytDownloaderThread.cancel(true);
+					ytDownloaderThread = null;
+				}
 				if (video != null) {
-					current = null;
 					isPlaying = false;
 					video.stopPlayback();
 				}
 			}
 		});
 	}
-
+	
 	private void playVideo() {
 		try {
-			final String path = ((EditText) findViewById(R.id.edtURL))
-					.getText().toString();
-			if (path == null || path.length() == 0) {
-				Toast.makeText(getBaseContext(), "File URL/path is empty",
-						Toast.LENGTH_LONG).show();
-
-			} else {// If the path has not changed, just start the media
-				// player
-				if (path.equals(current) && video != null) {
-					if (!isPlaying) {
-						Log.d(TAG, "Playback started.");
-						isPlaying = true;
-						video.start();
-						video.requestFocus();
-					}
-				} else {
-					current = path;
-					video.setVideoPath(OTHER_FILE);
-					isPlaying = true;
-					video.start();
-					video.requestFocus();
-				}
-			}
+			Log.d(TAG, "Playback started.");
+			isPlaying = true;
+			video.setVideoURI(Uri.parse("http://127.0.0.1:8893/xyz"));
+			video.start();
+			video.requestFocus();
 		} catch (Exception e) {
 			Log.e(TAG, "error: " + e.getMessage(), e);
 			if (video != null) {
