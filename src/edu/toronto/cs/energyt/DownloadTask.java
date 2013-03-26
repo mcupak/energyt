@@ -18,6 +18,7 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
+import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
@@ -31,6 +32,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 	// the first connection of youtube streaming server has established...
 	// [if it has been established its value should be: false]
 	private boolean reestablishConn;
+	private boolean resumeWHeaders;
 	private boolean acquireHTMLSource; // Does this thread acquires HTML
 										// Source...
 	private URL actualURL;
@@ -48,6 +50,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 
 	public DownloadTask(MainActivity mainApp) {
 		this.reestablishConn = false;
+		this.resumeWHeaders = false;
 		this.acquireHTMLSource = false;
 		this.mainApp = mainApp;
 		this.networkType = -1;
@@ -147,8 +150,10 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		NetworkInfo netInfo = cm.getActiveNetworkInfo();
 		if (netInfo != null && netInfo.isConnected())
 			return true;
-		else
+		if (Settings.Global.getInt(mainApp.getContentResolver(), 
+				Settings.Global.AIRPLANE_MODE_ON, 0) != 0)
 			return false;
+		else return (mainApp.wifi != null && mainApp.wifi.isWifiEnabled());
 	}
 
 	private boolean establishConnection(URL url, String outputFile) {
@@ -157,7 +162,8 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 				connection = (HttpURLConnection) url.openConnection();
 				this.networkType = mainApp.cellSignal.getNetworkType();
 				file = new File(outputFile);
-				if (this.reestablishConn) {
+				Log.d(MainActivity.TAG, "ResumeWHeaders: " + this.resumeWHeaders);
+				if (this.resumeWHeaders) {
 					connection.setRequestProperty("Range",
 							"bytes=" + (file.length()) + "-");
 				} else if (file.exists()) {
@@ -174,11 +180,16 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 				// append to the file output buffer...
 				fos = new FileOutputStream(file, true);
 				bos = new BufferedOutputStream(fos);
+				
+				Log.d(MainActivity.TAG, "EST_CONN: SUCCESS");
 				return true;
-			} else
+			} else {
+				Log.d(MainActivity.TAG, "EST_CONN: FAILURE");
 				return false;
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
+			Log.d(MainActivity.TAG, "EST_CONN: EXCEPTION");
 			return false;
 		}
 	}
@@ -249,54 +260,60 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		mainApp.setYtDownFinished(false);
 	}
 
-	private boolean downloadProcess() throws IOException {
-		if (this.acquireHTMLSource
-				&& this.establishConnection(this.actualURL,
-						MainActivity.OTHER_FILE)) {
-			// prefetch a few bytes before starting playing
-			// Log.d(MainActivity.TAG, "Prefetching started.");
-			// No need to prefetch - We have streams now!
-			if (!this.reestablishConn)
-				publishProgress();
-			byte data[] = new byte[1024];
-			int j;
+	private boolean downloadProcess() {
+		try {
+			if (this.acquireHTMLSource
+					&& this.establishConnection(this.actualURL,
+							MainActivity.OTHER_FILE)) {
+				// prefetch a few bytes before starting playing
+				// Log.d(MainActivity.TAG, "Prefetching started.");
+				// No need to prefetch - We have streams now!
+				//if (!this.reestablishConn && )
+					
+				byte data[] = new byte[1024];
+				int j;
 			
-			// prefetch
-			int count = 0;
-			while ((j = bis.read(data)) != -1 && count < PREFETCH_SIZE) {
-				fos.write(data, 0, j);
-				mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-				count++;
-			}
-			Log.d(MainActivity.TAG, "prefetch done");
+//			// prefetch
+//			int count = 0;
+//			while ((j = bis.read(data)) != -1 && count < PREFETCH_SIZE) {
+//				fos.write(data, 0, j);
+//				mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
+//				count++;
+//			}
+//			Log.d(MainActivity.TAG, "prefetch done");
 			
 			// test
-			closeConnection();
-			Log.d(MainActivity.TAG, "Connection closed.");
-			this.reestablishConn = true;
-			establishConnection(this.actualURL, MainActivity.OTHER_FILE);
-			Log.d(MainActivity.TAG, "Connection started.");
+//			closeConnection();
+//			Log.d(MainActivity.TAG, "Connection closed.");
+//			this.reestablishConn = true;
+//			establishConnection(this.actualURL, MainActivity.OTHER_FILE);
+//			Log.d(MainActivity.TAG, "Connection started.");
 			
 			// While loop streams until there is nothing left in the socket
-			while ((j = bis.read(data)) != -1) {
-				if (isCancelled()) { // the thread has been cancelled!
-					Log.d(MainActivity.TAG, "Download cancelled.");
-					break;
+				while ((j = bis.read(data)) != -1) {
+					if (isCancelled()) { // the thread has been cancelled!
+						Log.d(MainActivity.TAG, "Download cancelled.");
+						break;
+					}
+					fos.write(data, 0, j);
+					mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
+					
+					
+					if (!checkConnected()) {
+						// After having read the whole stream we need
+						// to restore again the connection
+						this.reestablishConn = true;
+					}
 				}
-				fos.write(data, 0, j);
-				mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-				
-				
-				if (!checkConnected()) {
-					// After having read the whole stream we need
-					// to restore again the connection
-					this.reestablishConn = true;
-				}
+				Log.d(MainActivity.TAG, "DOWN_PROCESS: SUCCESS");
+				return true;
+			} else {
+				Log.d(MainActivity.TAG,
+						"Not acquiring mp4 file! Problem with the connection...");
+				return false;
 			}
-			return true;
-		} else {
-			Log.d(MainActivity.TAG,
-					"Not acquiring mp4 file! Problem with the connection...");
+		} catch (IOException e) {
+			this.closeConnection();
 			return false;
 		}
 	}
@@ -312,17 +329,22 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 			// Attempt to connect for 5 times in a row
 			// if this won't work then quit...
 			int trials = 0;
+			publishProgress();
 			while (!this.reestablishConn && trials < 10) {
-				if (this.downloadProcess()) {
+				boolean success = this.downloadProcess();
+				if (success) {
 					// We have established connection which means that
 					// the counter should be zero...
 					trials = 0;
+					this.resumeWHeaders = false;
+					Log.d(MainActivity.TAG, "Some downloading occured...");
 				}
 				if (!this.reestablishConn && checkConnected()) {
 					// We are sure that the video has been downloaded
 					// properly...
+					Log.d(MainActivity.TAG, "Everything Fine...");
 					break;
-				} else if (this.reestablishConn || !checkConnected()) {
+				} else /*if (this.reestablishConn || !checkConnected())*/ {
 					// We might be disconnected without having acquired all the
 					// video
 					// so we need to check connectivity again in case we haven't
@@ -332,6 +354,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 					// We caught reestablish connection event
 					// time to set variable to its initial/default value
 					this.reestablishConn = false;
+					this.resumeWHeaders = true;
 					Log.d(MainActivity.TAG,
 							"Connection lost during download process");
 					// clear previous opened streams...
@@ -341,7 +364,8 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 					// Make this thread wait for a while till connection appears
 					// again...
 					try {
-						this.wait(5000);
+						Thread.sleep(5000);
+						Log.d(MainActivity.TAG, "Waiting");
 					} catch (InterruptedException e) {
 						Log.d(MainActivity.TAG,
 								"YTDownloader: Interrupt occured!");
@@ -379,8 +403,10 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		} catch (MalformedURLException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
+			Log.d(MainActivity.TAG, "IOException - yt Background");
 			e.printStackTrace();
 		} catch (NullPointerException e) {
+			Log.d(MainActivity.TAG, "NullPointerException - yt Background");
 			e.printStackTrace();
 		}
 
