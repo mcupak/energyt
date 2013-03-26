@@ -150,10 +150,11 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		NetworkInfo netInfo = cm.getActiveNetworkInfo();
 		if (netInfo != null && netInfo.isConnected())
 			return true;
-		if (Settings.Global.getInt(mainApp.getContentResolver(), 
+		if (Settings.Global.getInt(mainApp.getContentResolver(),
 				Settings.Global.AIRPLANE_MODE_ON, 0) != 0)
 			return false;
-		else return (mainApp.wifi != null && mainApp.wifi.isWifiEnabled());
+		else
+			return (mainApp.wifi != null && mainApp.wifi.isWifiEnabled());
 	}
 
 	private boolean establishConnection(URL url, String outputFile) {
@@ -162,7 +163,8 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 				connection = (HttpURLConnection) url.openConnection();
 				this.networkType = mainApp.cellSignal.getNetworkType();
 				file = new File(outputFile);
-				Log.d(MainActivity.TAG, "ResumeWHeaders: " + this.resumeWHeaders);
+				Log.d(MainActivity.TAG, "ResumeWHeaders: "
+						+ this.resumeWHeaders);
 				if (this.resumeWHeaders) {
 					connection.setRequestProperty("Range",
 							"bytes=" + (file.length()) + "-");
@@ -180,7 +182,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 				// append to the file output buffer...
 				fos = new FileOutputStream(file, true);
 				bos = new BufferedOutputStream(fos);
-				
+
 				Log.d(MainActivity.TAG, "EST_CONN: SUCCESS");
 				return true;
 			} else {
@@ -268,28 +270,28 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 				// prefetch a few bytes before starting playing
 				// Log.d(MainActivity.TAG, "Prefetching started.");
 				// No need to prefetch - We have streams now!
-				//if (!this.reestablishConn && )
-					
+				// if (!this.reestablishConn && )
+
 				byte data[] = new byte[1024];
 				int j;
-			
-//			// prefetch
-//			int count = 0;
-//			while ((j = bis.read(data)) != -1 && count < PREFETCH_SIZE) {
-//				fos.write(data, 0, j);
-//				mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-//				count++;
-//			}
-//			Log.d(MainActivity.TAG, "prefetch done");
-			
-			// test
-//			closeConnection();
-//			Log.d(MainActivity.TAG, "Connection closed.");
-//			this.reestablishConn = true;
-//			establishConnection(this.actualURL, MainActivity.OTHER_FILE);
-//			Log.d(MainActivity.TAG, "Connection started.");
-			
-			// While loop streams until there is nothing left in the socket
+
+				// // prefetch
+				// int count = 0;
+				// while ((j = bis.read(data)) != -1 && count < PREFETCH_SIZE) {
+				// fos.write(data, 0, j);
+				// mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
+				// count++;
+				// }
+				// Log.d(MainActivity.TAG, "prefetch done");
+
+				// test
+				// closeConnection();
+				// Log.d(MainActivity.TAG, "Connection closed.");
+				// this.reestablishConn = true;
+				// establishConnection(this.actualURL, MainActivity.OTHER_FILE);
+				// Log.d(MainActivity.TAG, "Connection started.");
+
+				// While loop streams until there is nothing left in the socket
 				while ((j = bis.read(data)) != -1) {
 					if (isCancelled()) { // the thread has been cancelled!
 						Log.d(MainActivity.TAG, "Download cancelled.");
@@ -297,8 +299,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 					}
 					fos.write(data, 0, j);
 					mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-					
-					
+
 					if (!checkConnected()) {
 						// After having read the whole stream we need
 						// to restore again the connection
@@ -344,7 +345,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 					// properly...
 					Log.d(MainActivity.TAG, "Everything Fine...");
 					break;
-				} else /*if (this.reestablishConn || !checkConnected())*/ {
+				} else /* if (this.reestablishConn || !checkConnected()) */{
 					// We might be disconnected without having acquired all the
 					// video
 					// so we need to check connectivity again in case we haven't
