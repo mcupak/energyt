@@ -37,6 +37,7 @@ public class StreamProxy extends AsyncTask<Void,Void,Void>  {
 		try {
 			socket = new ServerSocket(SERVER_PORT, 0, InetAddress.getByAddress(new byte[] {127,0,0,1}));
 			socket.setSoTimeout(5000);
+			//socket.setSoTimeout(0);
 			port = socket.getLocalPort();
 			isRunning = false;
 		} catch (UnknownHostException e) { // impossible
@@ -90,12 +91,17 @@ public class StreamProxy extends AsyncTask<Void,Void,Void>  {
 
         Socket client;
         int cbSkip;
-        private Boolean isRunning;
+        private boolean isRunning;
+      //Variable in order to terminate this thread
+        //as soon as it has read all the input stream and
+        //ytDownloadTask has finished executing
+        private boolean updateOccured = false;
 
         public StreamToMediaPlayerTask(Socket client, int cbSkip) {
             this.client = client;
             this.cbSkip = cbSkip;
             this.isRunning = false;
+            this.updateOccured = false;
         }
 
         @Override
@@ -115,14 +121,13 @@ public class StreamProxy extends AsyncTask<Void,Void,Void>  {
             //int fc = 0;
             //long cbToSend = fileSize - cbSkip;
         	long cbToSend = fileSize;
+        	long totalRead = 0;
             OutputStream output = null;
             byte[] buff = new byte[64 * 1024];
             try {
                 output = new BufferedOutputStream(client.getOutputStream(), 32*1024);                           
-
                 // Loop as long as there's stuff to send
                 while (isRunning && cbToSend>0 && !client.isClosed()) {
-
                     // See if there's more to send
                     File file = new File(MainActivity.OTHER_FILE);
                     //fc++;
@@ -131,37 +136,42 @@ public class StreamProxy extends AsyncTask<Void,Void,Void>  {
                         FileInputStream input = new FileInputStream(file);
                         input.skip(cbSkip);
                         int cbToSendThisBatch = input.available();
-                        
-                        
+                        // Sending actually the data to media player
                         while (cbToSendThisBatch > 0) {
-                        	if (isCancelled()) {
-                        		Log.d(MainActivity.TAG, "Closing socket connection - tread cancelled.");
-                        		break;
-                        	}
-                        	//how mcuh to send for this exact next packet to mediaplayer (client)
+//                        	if (isCancelled()) {
+//                        		Log.d(MainActivity.TAG, "Closing socket connection - thread cancelled.");
+//                        		break;
+//                        	}
+                        	//how much to send for this exact next packet to mediaplayer (client)
                             int cbToRead = Math.min(cbToSendThisBatch, buff.length);
                             //Now read the above amount into the buffer
                             int cbRead = input.read(buff, 0, cbToRead);
                             if (cbRead == -1) {
                                 break;
+                            } else {
+                            	mainApp.setStreamedSize(mainApp.getStreamedSize() + cbRead);
                             }
                             cbToSendThisBatch -= cbRead;
                             cbToSend -= cbRead;
+                            totalRead += cbRead;
                             output.write(buff, 0, cbRead);
                             output.flush();
                             cbSkip += cbRead;
                             cbSentThisBatch += cbRead;
                         }
                         
-                        
                         input.close();
-                        if (isCancelled()) {
-                        	Log.d(MainActivity.TAG, "Closing socket connection - tread cancelled.");
-                        	break;
-                        }
+//                        if (isCancelled()) {
+//                        	Log.d(MainActivity.TAG, "Closing socket connection - tread cancelled.");
+//                        	break;
+//                        }
+                    }
+                    if (!this.updateOccured && mainApp.ytThreadFinished()) {
+                    	cbToSend = mainApp.getYTDownloadSize() - totalRead;
+                    	this.updateOccured = true;
                     }
                     if (isCancelled()) {
-                    	Log.d(MainActivity.TAG, "Closing socket connection - tread cancelled.");
+                    	Log.d(MainActivity.TAG, "Closing socket connection - thread cancelled.");
                     	break;
                     }
                     // If we did nothing this batch, block for a second
