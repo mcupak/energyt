@@ -3,6 +3,8 @@ package edu.toronto.cs.energyt;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.PixelFormat;
+import android.media.MediaPlayer;
+import android.media.MediaPlayer.OnErrorListener;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
@@ -263,6 +265,15 @@ public class MainActivity extends Activity {
 		mReset.setOnClickListener(this.resetListener);
 
 		mStop.setOnClickListener(this.stopListener);
+
+		video.setOnErrorListener(new OnErrorListener() {
+
+			@Override
+			public boolean onError(MediaPlayer mp, int what, int extra) {
+				return true;
+			}
+		});
+
 	}
 
 	// @Override
