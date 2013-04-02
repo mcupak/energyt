@@ -10,11 +10,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 
 import android.content.Context;
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
@@ -31,6 +34,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 	// This means that is updated in this function and declares whether
 	// the first connection of youtube streaming server has established...
 	// [if it has been established its value should be: false]
+	private boolean publishContentOn;
 	private boolean reestablishConn;
 	private boolean resumeWHeaders;
 	private boolean acquireHTMLSource; // Does this thread acquires HTML
@@ -115,23 +119,12 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		Log.d(MainActivity.TAG, debugMess);
 		Log.d(MainActivity.TAG, "Request youtube html source code for a video.");
 		if (this.establishConnection(url, MainActivity.HTMLSOURCE_FILE)) {
-			// connection = (HttpURLConnection) url.openConnection();
-			// connection.connect();
-			// BufferedInputStream bis = new
-			// BufferedInputStream(connection.getInputStream());
-			// FileOutputStream fos = new
-			// FileOutputStream(MainActivity.HTMLSOURCE_FILE);
-			// BufferedOutputStream bos = new BufferedOutputStream(fos, 1024);
 			byte[] data = new byte[BUFFER_SIZE];
 			int j = 0;
 			while ((j = bis.read(data, 0, 1024)) != -1) {
 				bos.write(data, 0, j);
 			}
 			this.closeConnection();
-			// bis.close();
-			// bos.close();
-			// fos.close();
-			// connection.disconnect();
 			Log.d(MainActivity.TAG, "End of request of html source code.");
 			Log.d(MainActivity.TAG, "Parsing HTML Source code.");
 			ytLink = parseHTMLSource();
@@ -144,15 +137,17 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		return ytLink;
 	}
 
-	private boolean checkConnected() {
+	private boolean checkConnected()  {
 		ConnectivityManager cm = (ConnectivityManager) mainApp
 				.getSystemService(Context.CONNECTIVITY_SERVICE);
 		NetworkInfo netInfo = cm.getActiveNetworkInfo();
 		if (netInfo != null && netInfo.isConnected())
 			return true;
 		if (Settings.Global.getInt(mainApp.getContentResolver(),
-				Settings.Global.AIRPLANE_MODE_ON, 0) != 0)
+				Settings.Global.AIRPLANE_MODE_ON, 0) != 0) {
+			Log.d(MainActivity.TAG, "AIRPLANE_MODE Detected");
 			return false;
+		}
 		else
 			return (mainApp.wifi != null && mainApp.wifi.isWifiEnabled());
 	}
@@ -161,7 +156,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		try {
 			if (this.checkConnected()) {
 				connection = (HttpURLConnection) url.openConnection();
-				this.networkType = mainApp.cellSignal.getNetworkType();
+				this.networkType = mainApp.telephony.getNetworkType();
 				file = new File(outputFile);
 				Log.d(MainActivity.TAG, "ResumeWHeaders: "
 						+ this.resumeWHeaders);
@@ -193,6 +188,9 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 			e.printStackTrace();
 			Log.d(MainActivity.TAG, "EST_CONN: EXCEPTION");
 			return false;
+		} catch (Exception e) {
+			Log.d(MainActivity.TAG, "" + e.getMessage());
+			return false;
 		}
 	}
 
@@ -218,37 +216,6 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		}
 	}
 
-	private boolean networkWeakened(int currNetworkType) {
-		if (currNetworkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
-				|| this.networkType == TelephonyManager.NETWORK_TYPE_UNKNOWN)
-			return false;
-		switch (this.networkType) {
-		case TelephonyManager.NETWORK_TYPE_GPRS:
-			break;
-		case TelephonyManager.NETWORK_TYPE_EDGE:
-			break;
-		case TelephonyManager.NETWORK_TYPE_IDEN:
-			break;
-		case TelephonyManager.NETWORK_TYPE_1xRTT:
-		case TelephonyManager.NETWORK_TYPE_CDMA:
-		case TelephonyManager.NETWORK_TYPE_EVDO_0:
-		case TelephonyManager.NETWORK_TYPE_EVDO_A:
-		case TelephonyManager.NETWORK_TYPE_EVDO_B:
-		case TelephonyManager.NETWORK_TYPE_EHRPD:
-		case TelephonyManager.NETWORK_TYPE_UMTS:
-			break;
-		case TelephonyManager.NETWORK_TYPE_HSPA:
-		case TelephonyManager.NETWORK_TYPE_HSUPA:
-		case TelephonyManager.NETWORK_TYPE_HSDPA:
-			break;
-		case TelephonyManager.NETWORK_TYPE_HSPAP:
-			break;
-		case TelephonyManager.NETWORK_TYPE_LTE:
-			break;
-		}
-		return true;
-	}
-
 	@Override
 	protected void onPreExecute() {
 		Log.d(MainActivity.TAG, "AsyncTask: Task started.");
@@ -262,48 +229,62 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		mainApp.setYtDownFinished(false);
 	}
 
-	private boolean downloadProcess() {
+	private boolean downloadProcess(boolean energyAwarenessOn) {
 		try {
 			if (this.acquireHTMLSource
 					&& this.establishConnection(this.actualURL,
 							MainActivity.OTHER_FILE)) {
-				// prefetch a few bytes before starting playing
-				// Log.d(MainActivity.TAG, "Prefetching started.");
-				// No need to prefetch - We have streams now!
-				// if (!this.reestablishConn && )
-
-				byte data[] = new byte[1024];
-				int j;
-
-				// // prefetch
-				// int count = 0;
-				// while ((j = bis.read(data)) != -1 && count < PREFETCH_SIZE) {
-				// fos.write(data, 0, j);
-				// mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-				// count++;
-				// }
-				// Log.d(MainActivity.TAG, "prefetch done");
-
-				// test
-				// closeConnection();
-				// Log.d(MainActivity.TAG, "Connection closed.");
-				// this.reestablishConn = true;
-				// establishConnection(this.actualURL, MainActivity.OTHER_FILE);
-				// Log.d(MainActivity.TAG, "Connection started.");
-
+				boolean energySavingMode = false;
+				byte data[] = new byte[BUFFER_SIZE];
+				int signalStrength = 0;
+				int prevSignalStrength = this.mainApp.getSignalStrength();
+				int j = 0;
 				// While loop streams until there is nothing left in the socket
-				while ((j = bis.read(data)) != -1) {
+				while (energySavingMode || (j = bis.read(data)) != -1) {
 					if (isCancelled()) { // the thread has been cancelled!
 						Log.d(MainActivity.TAG, "Download cancelled.");
 						break;
 					}
-					fos.write(data, 0, j);
-					mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
-
-					if (!checkConnected()) {
+					if (!energySavingMode || !energyAwarenessOn) {
+						// We will write to the file if we have closed connection
+						// for energy issues or if the execution of this task
+						// does not taking into account 'energy awareness issues'
+						fos.write(data, 0, j);
+						mainApp.setYTDownloadSize(mainApp.getYTDownloadSize() + j);
+						if (this.publishContentOn) {
+							publishProgress();
+							this.publishContentOn = false;
+						}
+					}
+					if (!energyAwarenessOn && !checkConnected()) {
 						// After having read the whole stream we need
 						// to restore again the connection
 						this.reestablishConn = true;
+					}
+					if (energyAwarenessOn) {
+						// If our algorithm is energy aware then we should
+						// leverage potential disconnections that will save
+						// energy
+						signalStrength = this.mainApp.getSignalStrength();
+						if (!energySavingMode 
+							&& signalStrength < prevSignalStrength 
+							&& mainApp.canDisconnect()) {
+							energySavingMode = true;
+							this.resumeWHeaders = true;
+							this.closeConnection();
+							Log.d(MainActivity.TAG, "SIGNAL: current - " + signalStrength);
+							Log.d(MainActivity.TAG, "SIGNAL: previous - " + prevSignalStrength);
+							Log.d(MainActivity.TAG, "Connection disabled");
+						}
+						if ((energySavingMode && mainApp.canConnect())
+							|| signalStrength > prevSignalStrength) {
+							energySavingMode = false;
+							prevSignalStrength = mainApp.getSignalStrength();
+							this.establishConnection(this.actualURL, MainActivity.OTHER_FILE);
+							Log.d(MainActivity.TAG, "SIGNAL: current - " + signalStrength);
+							Log.d(MainActivity.TAG, "SIGNAL: previous - " + prevSignalStrength);
+							Log.d(MainActivity.TAG, "Connection enabled");
+						}
 					}
 				}
 				Log.d(MainActivity.TAG, "DOWN_PROCESS: SUCCESS");
@@ -315,6 +296,9 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 			}
 		} catch (IOException e) {
 			this.closeConnection();
+			return false;
+		} catch (Exception e) {
+			Log.d(MainActivity.TAG, "" + e.getMessage());
 			return false;
 		}
 	}
@@ -329,10 +313,10 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 
 			// Attempt to connect for 5 times in a row
 			// if this won't work then quit...
+			this.publishContentOn = true;
 			int trials = 0;
-			publishProgress();
 			while (!this.reestablishConn && trials < 10) {
-				boolean success = this.downloadProcess();
+				boolean success = this.downloadProcess(true);
 				if (success) {
 					// We have established connection which means that
 					// the counter should be zero...
@@ -346,11 +330,9 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 					Log.d(MainActivity.TAG, "Everything Fine...");
 					break;
 				} else /* if (this.reestablishConn || !checkConnected()) */{
-					// We might be disconnected without having acquired all the
-					// video
-					// so we need to check connectivity again in case we haven't
-					// activated
-					// our energy efficient algorithm...
+					// We might be disconnected without 
+					// having acquired all the video
+					// so we need to check connectivity again 
 
 					// We caught reestablish connection event
 					// time to set variable to its initial/default value
@@ -373,33 +355,7 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 						e.printStackTrace();
 					}
 				}
-
 			}
-
-			// count+=j;
-			// //If prefetch is done, startup mediaplayer via
-			// publishProgress(null)
-			// if(notActivate && count > 0 && count > PREFETCH_SIZE) {
-			// Log.d(MainActivity.TAG, "Playback called.");
-			// publishProgress();
-			// count = -1;
-			// notActivate = false;
-			// }
-			// else {
-			// /**
-			// * ENERGY EFFICIENT ALGORITHM - we start applying it when prefetch
-			// has ended.
-			// */
-			// //TODO
-			// int currNetworkType = mainApp.cellSignal.getNetworkType();
-			// if (mainApp.canDisconnect() && !mainApp.wifi.isWifiEnabled()
-			// && this.networkWeakened(currNetworkType)) {
-			// Log.d(MainActivity.TAG, "Disconnect case");
-			// this.networkType = mainApp.cellSignal.getNetworkType();
-			// }
-			// /* END OF ENERGY EFFICIENT ALGORITHM */
-			// }
-
 			Log.d(MainActivity.TAG, "Download finished.");
 		} catch (MalformedURLException e) {
 			e.printStackTrace();
@@ -409,6 +365,8 @@ public class DownloadTask extends AsyncTask<Void, Void, Void> {
 		} catch (NullPointerException e) {
 			Log.d(MainActivity.TAG, "NullPointerException - yt Background");
 			e.printStackTrace();
+		} catch (Exception e) {
+			Log.d(MainActivity.TAG, "" + e.getMessage());
 		}
 
 		return null;

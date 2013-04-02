@@ -10,6 +10,8 @@ import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.telephony.PhoneStateListener;
+import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.View;
@@ -44,16 +46,18 @@ public class MainActivity extends Activity {
 
 	// These variables have to do with the implementation of energy efficient
 	// algorithm
-	public static final long connectThres = 20000;
-	public static final long disconnectThres = 100000;
+	public static final long CONNECT_THRESHOLD = 8000;
+	public static final long DISCONNECT_THRES = 50000;
 	private volatile long ytDownloadedSize;
 	private volatile long videoViewStreamedSize;
 	private volatile boolean ytDownFinished;
+	private volatile int signalStrength; 
 
 	// Objects in order to acquire info about signal strength, WiFi connection
 	// etc...
 	public WifiManager wifi = null;
-	public TelephonyManager cellSignal = null;
+	public TelephonyManager telephony = null;
+	public SignalStateListener signalListener = null;
 
 	// All threads are public because we want MainActivity to have full control
 	// upon
@@ -175,32 +179,22 @@ public class MainActivity extends Activity {
 			mainApp.linkPlaying = null;
 		}
 	}
-
-	// private class CompletionListener extends Listener implements
-	// MediaPlayer.OnCompletionListener {
-	//
-	// public CompletionListener(MainActivity mainApp) {
-	// super(mainApp);
-	// }
-	//
-	// @Override
-	// public void onCompletion(MediaPlayer mp) {
-	// if (mainApp.isPlaying) {
-	// //State hasn't change for 'isPlaying' while videoview has stopped playing
-	// //the video... This means that streaming has ended -> Close all threads
-	// except
-	// //the server socket
-	// if (mainApp.video != null) {
-	// mainApp.video.stopPlayback();
-	// mainApp.video.seekTo(0);
-	// }
-	// this.DestroyThreads();
-	// mainApp.isPlaying = false;
-	// mainApp.linkPlaying = null;
-	// }
-	// }
-	//
-	// }
+	
+	private class SignalStateListener extends PhoneStateListener {
+		
+		MainActivity mainApp;
+		
+		SignalStateListener(MainActivity mainApp) {
+			super();
+			this.mainApp = mainApp;
+		}
+		
+		@Override
+		public void onSignalStrengthsChanged(SignalStrength signalStrength) {
+			super.onSignalStrengthsChanged(signalStrength);
+			mainApp.signalStrength = signalStrength.getGsmSignalStrength();
+		}
+	}
 
 	/* ACTIVITY CORE FUNCTIONS */
 
@@ -210,11 +204,17 @@ public class MainActivity extends Activity {
 
 		this.ytDownloadedSize = 0;
 		this.videoViewStreamedSize = 0;
+		this.signalStrength = 0;
 		this.setYtDownFinished(false);
 
-		this.wifi = (WifiManager) this.getSystemService(Context.WIFI_SERVICE);
-		this.cellSignal = (TelephonyManager) this
+		this.wifi = (WifiManager) this
+				.getSystemService(Context.WIFI_SERVICE);
+		this.signalListener = new SignalStateListener(this);
+		this.telephony = (TelephonyManager) this
 				.getSystemService(Context.TELEPHONY_SERVICE);
+		this.telephony.listen(signalListener, 
+				SignalStateListener.LISTEN_SIGNAL_STRENGTHS);
+		
 
 		this.isPlaying = false;
 		this.linkPlaying = null;
@@ -313,11 +313,11 @@ public class MainActivity extends Activity {
 	}
 
 	public boolean canDisconnect() {
-		return (this.getRemainingBuffer() > MainActivity.disconnectThres);
+		return (this.getRemainingBuffer() > MainActivity.DISCONNECT_THRES);
 	}
 
 	public boolean canConnect() {
-		return (this.getRemainingBuffer() < MainActivity.connectThres);
+		return (this.getRemainingBuffer() < MainActivity.CONNECT_THRESHOLD);
 	}
 
 	public String getLinkPlaying() {
@@ -347,4 +347,9 @@ public class MainActivity extends Activity {
 	public void setYtDownFinished(boolean ytDownFinished) {
 		this.ytDownFinished = ytDownFinished;
 	}
+	
+	public int getSignalStrength() {
+		return this.signalStrength;
+	}
+
 }
